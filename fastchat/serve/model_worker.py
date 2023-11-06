@@ -58,6 +58,7 @@ class ModelWorker(BaseModelWorker):
         conv_template: Optional[str] = None,
         embed_in_truncate: bool = False,
         seed: Optional[int] = None,
+        load_kwargs = {}, #修改点
         **kwargs,
     ):
         super().__init__(
@@ -82,6 +83,7 @@ class ModelWorker(BaseModelWorker):
             gptq_config=gptq_config,
             awq_config=awq_config,
             exllama_config=exllama_config,
+            load_kwargs=load_kwargs #修改点
         )
         self.device = device
         if self.tokenizer.pad_token == None:
@@ -283,6 +285,7 @@ def create_model_worker():
         default=None,
         help="Overwrite the random seed for each generation.",
     )
+    parser.add_argument("--load_kwargs",type=dict,default={"pre_seq_len":128}) #修改点
     args = parser.parse_args()
     logger.info(f"args: {args}")
 
@@ -333,6 +336,7 @@ def create_model_worker():
         conv_template=args.conv_template,
         embed_in_truncate=args.embed_in_truncate,
         seed=args.seed,
+        load_kwargs=args.load_kwargs,#修改点
     )
     return args, worker
 

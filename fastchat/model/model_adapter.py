@@ -172,11 +172,12 @@ def load_model(
     exllama_config: Optional[ExllamaConfig] = None,
     revision: str = "main",
     debug: bool = False,
+    load_kwargs = {} #修改点
 ):
     """Load a model from Hugging Face."""
     # get model adapter
     adapter = get_model_adapter(model_path)
-
+    kwargs = load_kwargs #修改点
     # Handle device mapping
     cpu_offloading = raise_warning_for_incompatible_cpu_offloading_configuration(
         device, load_8bit, cpu_offloading
@@ -369,16 +370,64 @@ def get_generate_stream_function(model: torch.nn.Module, model_path: str):
             judge_sent_end: bool = False,
         ):
             model.set_adapter(model_path)
-            for x in generate_stream(
-                model,
-                tokenizer,
-                params,
-                device,
-                context_len,
-                stream_interval,
-                judge_sent_end,
-            ):
-                yield x
+            #修改点开始
+            if "chatglm" in str(type(model.base_model)).lower():
+                model.disable_adapter()
+                prefix_state_dict = torch.load(os.path.join(model_path, "pytorch_model.bin"))
+                new_prefix_state_dict = {}
+
+                for k, v in prefix_state_dict.items():
+                    if k.startswith("transformer.prefix_encoder."):
+                        new_prefix_state_dict[k[len("transformer.prefix_encoder."):]] = v
+                    elif k.startswith("transformer.prompt_encoder."):
+                        new_prefix_state_dict[k[len("transformer.prompt_encoder."):]] = v
+                model.transformer.prefix_encoder.load_state_dict(new_prefix_state_dict)
+                for x in generate_stream_chatglm(
+                    model,
+                    tokenizer,
+                    params,
+                    device,
+                    context_len,
+                    stream_interval,
+                    judge_sent_end,
+                ):
+                    yield x
+            elif "rwforcausallm" in str(type(model.base_model)).lower():
+
+                for x in generate_stream_falcon(
+                    model,
+                    tokenizer,
+                    params,
+                    device,
+                    context_len,
+                    stream_interval,
+                    judge_sent_end,
+                ):
+                    yield x   
+            elif "codet5p" in str(type(model.base_model)).lower():
+
+                for x in generate_stream_codet5p(
+                    model,
+                    tokenizer,
+                    params,
+                    device,
+                    context_len,
+                    stream_interval,
+                    judge_sent_end,
+                ):
+                    yield x   
+            else:
+            #修改点结束
+                for x in generate_stream(
+                    model,
+                    tokenizer,
+                    params,
+                    device,
+                    context_len,
+                    stream_interval,
+                    judge_sent_end,
+                ):
+                    yield x
 
         return generate_stream_peft
     else:
@@ -548,9 +597,13 @@ class PeftModelAdapter:
                 )
                 # Super important: make sure we use model_path as the
                 # `adapter_name`.
-                model = PeftModel.from_pretrained(
-                    base_model, model_path, adapter_name=model_path
-                )
+                #修改点开始
+                # model = PeftModel.from_pretrained(
+                #     base_model, model_path, adapter_name=model_path
+                # )
+                from peft import get_peft_model
+                model = get_peft_model(base_model,config,adapter_name=model_path)
+                #修改点结束
                 peft_model_cache[base_model_path] = (model, tokenizer)
             return model, tokenizer
 
@@ -559,7 +612,11 @@ class PeftModelAdapter:
         base_model, tokenizer = base_adapter.load_model(
             base_model_path, from_pretrained_kwargs
         )
-        model = PeftModel.from_pretrained(base_model, model_path)
+        #修改点开始
+        #model = PeftModel.from_pretrained(base_model, model_path)
+        from peft import get_peft_model
+        model = get_peft_model(base_model,config,adapter_name=model_path)
+        #修改点结束
         return model, tokenizer
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
@@ -730,8 +787,13 @@ class ChatGLMAdapter(BaseModelAdapter):
         tokenizer = AutoTokenizer.from_pretrained(
             model_path, trust_remote_code=True, revision=revision
         )
+        #修改点
+        # model = AutoModel.from_pretrained(
+        #     model_path, trust_remote_code=True, **from_pretrained_kwargs
+        # )
+        config = AutoConfig.from_pretrained(model_path, trust_remote_code=True,**from_pretrained_kwargs)
         model = AutoModel.from_pretrained(
-            model_path, trust_remote_code=True, **from_pretrained_kwargs
+            model_path, trust_remote_code=True, config=config
         )
         return model, tokenizer
 
